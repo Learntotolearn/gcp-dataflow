@@ -1,0 +1,11 @@
+{
+  "db_host": "103.6.1.155",
+  "db_port": "58888", 
+  "db_user": "root",
+  "db_pass": "cdb1bdaf",
+  "db_list": "shop42824892400,shop57038880000,shop8690000",
+  "table_list": "ttpos_mem,ttpos_pt_package,tts_sale_product",
+  "bq_project": "diyl-407",
+  "bq_dataset": "TTPOS_TEST_DATE",
+  "write_mode": "TRUNCATE"
+}
