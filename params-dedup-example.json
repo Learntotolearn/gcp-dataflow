@@ -1,0 +1,20 @@
+{
+  "db_host": "103.6.1.155",
+  "db_port": "58888", 
+  "db_user": "root",
+  "db_pass": "cdb1bdaf",
+  "db_list": "shop42824892400,shop57038880000,shop8690000",
+  "table_list": "ttpos_mem,ttpos_pt_package,tts_sale_product",
+  "bq_project": "diyl-407",
+  "bq_dataset": "TTPOS_TEST_DATE",
+  "write_mode": "APPEND",
+  "dedup_mode": "merge",
+  "incremental_field": "update_time",
+  "lookback_hours": 1,
+  "comment": "去重配置说明",
+  "dedup_modes": {
+    "merge": "使用MERGE语句进行upsert操作（推荐）",
+    "hash": "使用数据哈希进行去重",
+    "incremental": "基于时间戳的增量同步"
+  }
+}
