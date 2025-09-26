@@ -53,14 +53,25 @@ python test_connection.py
 ### 4️⃣ 运行同步
 
 #### 🏠 本地运行（推荐）
+
+##### 🎯 多租户场景（推荐）
 ```bash
-# 方法1：使用增强版本（推荐）
+# 方法1：多租户全量同步（解决数据覆盖问题）
+python simple_sync_fixed_multitenant.py
+
+# 方法2：安全追加同步（智能去重，日常使用）
+python simple_sync_append_safe.py
+
+# 方法3：增量同步（最高效，适合有时间戳字段的表）
+python simple_sync_incremental.py
+```
+
+##### 🔧 单租户场景
+```bash
+# 方法1：使用原版本
 python simple_sync_fixed.py
 
-# 方法2：使用简化版本
-python simple_sync.py
-
-# 方法3：使用 Apache Beam 版本
+# 方法2：使用 Apache Beam 版本
 python run_local.py
 ```
 
@@ -69,43 +80,68 @@ python run_local.py
 ./run_dataflow_fixed.sh
 ```
 
-## ⚙️ 写入模式配置
+## ⚙️ 同步模式配置
 
-### 📝 支持的写入模式
+### 📝 多租户同步模式（推荐）
 
-| 模式 | 配置值 | 行为 | 适用场景 |
-|------|--------|------|----------|
-| **覆盖模式** | `TRUNCATE` | 每次清空表后写入最新数据 | 日常同步（推荐） |
-| **追加模式** | `APPEND` | 在现有数据后追加新数据 | 历史数据保留 |
-| **仅空表模式** | `EMPTY` | 只在表为空时写入数据 | 初次导入 |
+| 工具 | 模式 | 行为 | 适用场景 | 数据重复 |
+|------|------|------|----------|----------|
+| **多租户修复版本** | 全量同步 | 按表分组，避免租户数据覆盖 | 多租户全量同步 | ❌ 无重复 |
+| **安全追加版本** | 智能去重 | 基于数据哈希，只同步新数据 | 日常增量同步 | ❌ 智能去重 |
+| **增量同步版本** | 时间戳增量 | 基于时间戳字段的真正增量 | 有时间戳的表 | ❌ MERGE去重 |
 
-### 🔄 重复执行行为
+### 🔄 多租户同步行为对比
 
-#### TRUNCATE 模式（推荐）
+#### ❌ 原版本问题（已修复）
 ```bash
-# 第1次运行：BigQuery 有 273 行
-# 第2次运行：BigQuery 仍有 273 行（先清空，再写入相同数据）
-# 第3次运行（MySQL新增10行）：BigQuery 有 283 行
+# 多租户场景下的数据覆盖问题：
+# shop1.table1 → TRUNCATE + 写入 ✅
+# shop2.table1 → TRUNCATE + 写入 ❌ (清空了shop1数据)
+# shop3.table1 → TRUNCATE + 写入 ❌ (清空了shop1+shop2数据)
+# 结果：只保留最后一个租户的数据
 ```
 
-#### APPEND 模式
+#### ✅ 多租户修复版本
 ```bash
-# 第1次运行：BigQuery 有 273 行
-# 第2次运行：BigQuery 有 546 行（数据重复）
-# 适合增量同步场景
+# 按表分组的正确逻辑：
+# 1. 收集所有租户的table1数据 → 一次性TRUNCATE+写入 ✅
+# 2. 收集所有租户的table2数据 → 一次性TRUNCATE+写入 ✅
+# 结果：所有租户数据都正确保存
 ```
+
+#### ✅ 安全追加版本
+```bash
+# 智能去重逻辑：
+# 第1次运行：同步所有数据 (308行)
+# 第2次运行：检测重复，只同步新数据 (0行重复)
+# 第3次运行：MySQL新增10行 → 只同步新增的10行
+# 结果：无重复数据，高效同步
+```
+
+### 🎯 推荐使用策略
+
+#### 🏢 多租户场景
+1. **首次同步**：`python simple_sync_fixed_multitenant.py`
+2. **日常同步**：`python simple_sync_append_safe.py`
+3. **定期校验**：每周使用多租户修复版本全量校验
+
+#### 🏠 单租户场景
+1. **全量同步**：`python simple_sync_fixed.py`
+2. **增量同步**：`python simple_sync_incremental.py`
 
 详细配置说明请查看：[写入模式配置指南](WRITE_MODES.md)
 
 ## 📁 项目文件结构
 
 ### **🎯 核心运行文件**
-| 文件 | 说明 | 推荐度 |
-|------|------|--------|
-| `simple_sync_fixed.py` | ⭐ 主推荐，支持可配置写入模式 | ⭐⭐⭐⭐⭐ |
-| `simple_sync.py` | 简化版本，固定覆盖模式 | ⭐⭐⭐⭐ |
-| `run_local.py` | Apache Beam 版本，功能完整 | ⭐⭐⭐ |
-| `test_connection.py` | 连接测试工具 | ⭐⭐⭐⭐⭐ |
+| 文件 | 说明 | 推荐度 | 适用场景 |
+|------|------|--------|----------|
+| `simple_sync_fixed_multitenant.py` | ⭐ **多租户修复版本**，解决数据覆盖问题 | ⭐⭐⭐⭐⭐ | 多租户全量同步 |
+| `simple_sync_append_safe.py` | ⭐ **安全追加版本**，智能去重防重复 | ⭐⭐⭐⭐⭐ | 日常增量同步 |
+| `simple_sync_incremental.py` | 增量同步工具，基于时间戳 | ⭐⭐⭐⭐ | 有时间戳字段的表 |
+| `simple_sync_dedup.py` | MERGE去重工具，支持多种去重策略 | ⭐⭐⭐⭐ | APPEND模式去重 |
+| `simple_sync_fixed.py` | 原版本，支持可配置写入模式 | ⭐⭐⭐ | 单租户场景 |
+| `test_connection.py` | 连接测试工具 | ⭐⭐⭐⭐⭐ | 环境验证 |
 
 ### **⚙️ 配置和工具**
 | 文件 | 说明 | 必要性 |
@@ -119,6 +155,7 @@ python run_local.py
 | 文件 | 说明 |
 |------|------|
 | `README.md` | 主文档（本文件） |
+| `DEDUP_GUIDE.md` | 数据去重完整指南 |
 | `WRITE_MODES.md` | 写入模式详细说明 |
 
 ## 🔧 运行模式对比
@@ -134,17 +171,39 @@ python run_local.py
 
 ## 📊 同步结果示例
 
-### 最近一次同步统计
+### 🎉 多租户修复版本同步统计
 - **数据库数量**：3 个商店数据库
 - **表数量**：3 张表/数据库  
 - **总同步数据**：308 行记录
 - **同步时间**：< 30 秒
+- **数据完整性**：✅ 所有租户数据正确保存
 
-| 数据库 | ttpos_member | ttpos_product_package | ttpos_sale_order_product |
-|--------|--------------|----------------------|-------------------------|
-| shop4282489245696000 | 2 行 | 4 行 | 21 行 |
-| shop5703188090880000 | 0 行 | 6 行 | 23 行 |
-| shop8693575884800000 | 6 行 | 17 行 | 229 行 |
+| 数据库 | ttpos_member | ttpos_product_package | ttpos_sale_order_product | 小计 |
+|--------|--------------|----------------------|-------------------------|------|
+| shop4282489245696000 | 2 行 | 4 行 | 21 行 | 27 行 |
+| shop5703188090880000 | 0 行 | 6 行 | 23 行 | 29 行 |
+| shop8693575884800000 | 6 行 | 17 行 | 229 行 | 252 行 |
+| **总计** | **8 行** | **27 行** | **273 行** | **308 行** |
+
+### 🔄 安全追加版本去重统计
+```
+🚀 MySQL 到 BigQuery 安全追加同步工具
+🏢 多租户模式: 是
+🔧 同步模式: 安全追加（去重）
+
+[1/3] 处理表: ttpos_member
+  📊 总计收集数据: 8 行
+  📈 各租户数据统计:
+    🏢 shop4282489245696000: 2 行 (新增: 2, 重复: 0)
+    🏢 shop5703188090880000: 0 行 (新增: 0, 重复: 0)  
+    🏢 shop8693575884800000: 6 行 (新增: 6, 重复: 0)
+  ✅ 表 ttpos_member 多租户数据同步完成: 8 行
+
+📈 同步统计汇总:
+  🆕 新增数据: 308 行
+  🔄 重复数据: 0 行 (智能去重)
+  ⚡ 同步效率: 100% (无重复数据传输)
+```
 
 ## 🚨 快速故障排除
 
@@ -214,19 +273,42 @@ python simple_sync_fixed.py  # 直接运行查看输出
 
 ## 🔄 定时同步设置
 
-### 使用 cron 设置定时同步
+### 🎯 多租户推荐定时策略
+
+#### 方案1：安全追加 + 定期校验（推荐）
 ```bash
 # 编辑 crontab
 crontab -e
 
-# 每天凌晨 2 点运行同步
-0 2 * * * cd /path/to/dataflow && python simple_sync_fixed.py >> sync.log 2>&1
+# 每小时安全追加同步（智能去重，高效）
+0 * * * * cd /path/to/dataflow && python simple_sync_append_safe.py >> sync.log 2>&1
 
+# 每周日凌晨全量校验（确保数据一致性）
+0 2 * * 0 cd /path/to/dataflow && python simple_sync_fixed_multitenant.py >> sync.log 2>&1
+```
+
+#### 方案2：增量同步 + 定期校验
+```bash
+# 每15分钟增量同步（适合有时间戳字段的表）
+*/15 * * * * cd /path/to/dataflow && python simple_sync_incremental.py >> sync.log 2>&1
+
+# 每天凌晨全量校验
+0 2 * * * cd /path/to/dataflow && python simple_sync_fixed_multitenant.py >> sync.log 2>&1
+```
+
+#### 方案3：纯全量同步（简单可靠）
+```bash
+# 每天凌晨 2 点全量同步
+0 2 * * * cd /path/to/dataflow && python simple_sync_fixed_multitenant.py >> sync.log 2>&1
+```
+
+### 🏠 单租户定时策略
+```bash
 # 每小时运行一次
 0 * * * * cd /path/to/dataflow && python simple_sync_fixed.py >> sync.log 2>&1
 
-# 每15分钟运行一次（适合增量同步）
-*/15 * * * * cd /path/to/dataflow && python simple_sync_fixed.py >> sync.log 2>&1
+# 每15分钟增量同步
+*/15 * * * * cd /path/to/dataflow && python simple_sync_incremental.py >> sync.log 2>&1
 ```
 
 ### 使用 systemd 服务（Linux）
@@ -278,53 +360,107 @@ sudo systemctl start mysql-bq-sync.timer
 - **表**：自动创建，包含 `tenant_id` 字段
 
 ### SQL 查询示例
-```sql
--- 查看各商店会员统计
-SELECT tenant_id, COUNT(*) as member_count 
-FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_member` 
-GROUP BY tenant_id;
 
--- 查看销售数据汇总
+#### 🏢 多租户数据统计
+```sql
+-- 查看各租户数据统计
+SELECT 
+  tenant_id, 
+  COUNT(*) as total_rows,
+  COUNT(DISTINCT data_hash) as unique_rows,
+  MAX(sync_timestamp) as last_sync_time
+FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_member`
+GROUP BY tenant_id
+ORDER BY tenant_id;
+
+-- 查看各租户销售数据汇总
 SELECT 
   tenant_id, 
   COUNT(*) as order_count,
-  SUM(CAST(total_price AS NUMERIC)) as total_sales
+  SUM(CAST(total_price AS NUMERIC)) as total_sales,
+  MAX(sync_timestamp) as last_sync_time
 FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_sale_order_product` 
 GROUP BY tenant_id;
 
--- 查看最新同步时间（如果表有时间戳字段）
+-- 检查数据重复情况（安全追加版本）
 SELECT 
   tenant_id,
-  MAX(FROM_UNIXTIME(update_time)) as last_update_time
-FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_sale_order_product` 
+  COUNT(*) as total_rows,
+  COUNT(DISTINCT data_hash) as unique_rows,
+  COUNT(*) - COUNT(DISTINCT data_hash) as duplicate_rows
+FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_member`
 GROUP BY tenant_id;
+```
+
+#### 📊 数据质量监控
+```sql
+-- 查看同步历史和频率
+SELECT 
+  tenant_id,
+  DATE(sync_timestamp) as sync_date,
+  COUNT(*) as records_synced,
+  MIN(sync_timestamp) as first_sync,
+  MAX(sync_timestamp) as last_sync
+FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_sale_order_product` 
+GROUP BY tenant_id, DATE(sync_timestamp)
+ORDER BY sync_date DESC, tenant_id;
 
 -- 查看数据增长趋势
 SELECT 
   DATE(FROM_UNIXTIME(create_time)) as date,
+  tenant_id,
   COUNT(*) as daily_orders
 FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_sale_order_product` 
 WHERE create_time > 0
-GROUP BY DATE(FROM_UNIXTIME(create_time))
-ORDER BY date DESC;
+GROUP BY DATE(FROM_UNIXTIME(create_time)), tenant_id
+ORDER BY date DESC, tenant_id;
+
+-- 检查数据完整性
+SELECT 
+  'ttpos_member' as table_name,
+  tenant_id,
+  COUNT(*) as row_count
+FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_member`
+GROUP BY tenant_id
+UNION ALL
+SELECT 
+  'ttpos_product_package' as table_name,
+  tenant_id,
+  COUNT(*) as row_count
+FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_product_package`
+GROUP BY tenant_id
+UNION ALL
+SELECT 
+  'ttpos_sale_order_product' as table_name,
+  tenant_id,
+  COUNT(*) as row_count
+FROM `diyl-407103.TTPOS_TEST_DATE.ttpos_sale_order_product`
+GROUP BY tenant_id
+ORDER BY table_name, tenant_id;
 ```
 
 ## 🎯 技术优势
 
 ### ✅ 已解决的问题
+- ❌ **多租户数据覆盖** → ✅ **按表分组同步，数据完整保存**
+- ❌ **APPEND模式重复数据** → ✅ **智能哈希去重，零重复**
+- ❌ **增量同步复杂** → ✅ **基于时间戳的真正增量**
 - ❌ **容器依赖** → ✅ **直接运行 Python**
 - ❌ **Python 3.13 兼容性** → ✅ **完美兼容 3.9+**
 - ❌ **复杂部署** → ✅ **一键运行**
 - ❌ **调试困难** → ✅ **本地直接调试**
-- ❌ **固定写入模式** → ✅ **可配置写入模式**
+- ❌ **固定写入模式** → ✅ **多种同步策略**
 
 ### 🏆 核心技术特性
+- **多租户数据完整性**：按表分组同步，彻底解决数据覆盖问题
+- **智能去重机制**：基于数据哈希的零重复同步
+- **真正增量同步**：基于时间戳字段的高效增量更新
 - **自动 Schema 检测**：动态获取 MySQL 表结构
 - **类型安全转换**：正确处理 Decimal、DateTime 等特殊类型
-- **多租户架构**：自动添加 `tenant_id` 字段区分不同商店
-- **可配置写入模式**：支持覆盖、追加、仅空表三种模式
-- **增量同步友好**：支持基于时间戳的增量同步
+- **多租户架构**：自动添加 `tenant_id`、`data_hash`、`sync_timestamp` 字段
+- **多种同步策略**：全量、增量、安全追加、MERGE去重
 - **优雅错误处理**：空表、网络异常等情况的智能处理
+- **数据质量监控**：完整的同步统计和重复数据检测
 
 ## 📈 增量同步建议
 
@@ -371,6 +507,35 @@ WHERE update_time > {last_sync_timestamp}
 
 ---
 
-**🎯 推荐使用 `simple_sync_fixed.py` 进行日常数据同步！**
+## 🎯 最佳实践总结
 
-*项目已完全摆脱容器依赖，支持 Python 3.9+ 环境直接运行。*
+### 🏢 多租户场景（推荐）
+```bash
+# 1. 首次全量同步
+python simple_sync_fixed_multitenant.py
+
+# 2. 日常增量同步
+python simple_sync_append_safe.py
+
+# 3. 定期数据校验
+python simple_sync_fixed_multitenant.py  # 每周执行
+```
+
+### 🏠 单租户场景
+```bash
+# 1. 全量同步
+python simple_sync_fixed.py
+
+# 2. 增量同步
+python simple_sync_incremental.py
+```
+
+### 📊 数据质量保证
+- ✅ **零数据丢失**：多租户修复版本确保所有租户数据完整保存
+- ✅ **零重复数据**：安全追加版本智能去重，避免重复数据
+- ✅ **高效同步**：增量同步版本只传输变更数据
+- ✅ **完整监控**：详细的同步统计和数据质量检查
+
+**🎯 推荐多租户场景使用 `simple_sync_fixed_multitenant.py` + `simple_sync_append_safe.py` 组合！**
+
+*项目已完全解决多租户数据同步问题，支持 Python 3.9+ 环境直接运行。*

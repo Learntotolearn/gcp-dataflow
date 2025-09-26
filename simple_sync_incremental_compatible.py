@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MySQL 到 BigQuery 增量同步工具
-基于时间戳字段实现真正的增量同步，避免数据重复
+MySQL 到 BigQuery 增量同步工具 - 兼容版本
+兼容现有表结构，不强制添加sync_timestamp字段
 """
 
 import mysql.connector
@@ -77,8 +77,8 @@ def detect_timestamp_fields(db_host, db_port, db_user, db_pass, db_name, table_n
     print(f"  🕐 检测到时间戳字段: {[f['name'] for f in timestamp_fields]}")
     return timestamp_fields
 
-def get_table_schema(db_host, db_port, db_user, db_pass, db_name, table_name):
-    """获取 MySQL 表结构并转换为 BigQuery schema"""
+def get_table_schema_compatible(db_host, db_port, db_user, db_pass, db_name, table_name):
+    """获取 MySQL 表结构并转换为 BigQuery schema - 兼容版本"""
     print(f"🔍 获取表结构: {db_name}.{table_name}")
     
     conn = mysql.connector.connect(
@@ -100,15 +100,13 @@ def get_table_schema(db_host, db_port, db_user, db_pass, db_name, table_name):
     
     # 增加 tenant_id 字段
     schema.append(bigquery.SchemaField("tenant_id", "STRING", mode="NULLABLE"))
-    # 增加同步时间戳字段
-    schema.append(bigquery.SchemaField("sync_timestamp", "TIMESTAMP", mode="NULLABLE"))
     
     cursor.close()
     conn.close()
     return schema
 
-def get_last_sync_timestamp(client, table_id, timestamp_field, tenant_id):
-    """获取指定租户的最后同步时间戳"""
+def get_last_sync_timestamp_compatible(client, table_id, timestamp_field, tenant_id):
+    """获取指定租户的最后同步时间戳 - 兼容版本"""
     try:
         # 根据时间戳字段类型构建查询
         if timestamp_field['type'] in ['timestamp', 'datetime']:
@@ -133,9 +131,9 @@ def get_last_sync_timestamp(client, table_id, timestamp_field, tenant_id):
     
     return None
 
-def get_incremental_data(db_host, db_port, db_user, db_pass, db_name, table_name, 
-                        timestamp_field, last_timestamp=None, lookback_hours=1):
-    """获取增量数据"""
+def get_incremental_data_compatible(db_host, db_port, db_user, db_pass, db_name, table_name, 
+                                  timestamp_field, last_timestamp=None, lookback_hours=1):
+    """获取增量数据 - 兼容版本"""
     print(f"📥 读取增量数据: {db_name}.{table_name}")
     
     conn = mysql.connector.connect(
@@ -175,6 +173,7 @@ def get_incremental_data(db_host, db_port, db_user, db_pass, db_name, table_name
             WHERE {timestamp_field['name']} >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
             ORDER BY {timestamp_field['name']}
             """
+            cursor.execute(query)
         else:  # int类型时间戳
             current_timestamp = int(datetime.now().timestamp())
             day_ago_timestamp = current_timestamp - (24 * 3600)
@@ -185,19 +184,12 @@ def get_incremental_data(db_host, db_port, db_user, db_pass, db_name, table_name
             """
             cursor.execute(query, (day_ago_timestamp,))
         
-        if timestamp_field['type'] in ['timestamp', 'datetime']:
-            cursor.execute(query)
-        
         print(f"  🆕 首次同步: 获取最近24小时数据")
     
     rows = []
-    current_time = datetime.now()
-    
     for row in cursor.fetchall():
         # 添加 tenant_id
         row['tenant_id'] = db_name
-        # 添加同步时间戳
-        row['sync_timestamp'] = current_time
         
         # 处理特殊数据类型
         for key, value in row.items():
@@ -215,8 +207,8 @@ def get_incremental_data(db_host, db_port, db_user, db_pass, db_name, table_name
     conn.close()
     return rows
 
-def sync_table_incremental(params, db_name, table_name):
-    """增量同步单个表"""
+def sync_table_incremental_compatible(params, db_name, table_name):
+    """增量同步单个表 - 兼容版本"""
     print(f"\n🚀 开始增量同步: {db_name}.{table_name}")
     
     # 检测时间戳字段
@@ -243,7 +235,7 @@ def sync_table_incremental(params, db_name, table_name):
     print(f"  🎯 使用时间戳字段: {primary_timestamp['name']} ({primary_timestamp['type']})")
     
     # 获取表结构
-    schema = get_table_schema(
+    schema = get_table_schema_compatible(
         params['db_host'], params['db_port'], 
         params['db_user'], params['db_pass'], 
         db_name, table_name
@@ -264,21 +256,27 @@ def sync_table_incremental(params, db_name, table_name):
         client.create_dataset(dataset)
         print(f"  🆕 创建数据集: {dataset_id}")
     
+    # 检查表是否存在，如果不存在则创建
     try:
-        table = client.get_table(table_id)
+        target_table = client.get_table(table_id)
         print(f"  ✅ 表已存在: {table_name}")
+        # 获取现有表的schema
+        existing_schema = target_table.schema
+        existing_field_names = [field.name for field in existing_schema]
     except:
+        # 表不存在，创建新表
         table = bigquery.Table(table_id, schema=schema)
-        table = client.create_table(table)
+        target_table = client.create_table(table)
         print(f"  🆕 创建表: {table_name}")
+        existing_field_names = [field.name for field in schema]
     
     # 获取上次同步时间戳
-    last_timestamp = get_last_sync_timestamp(client, table_id, primary_timestamp, db_name)
+    last_timestamp = get_last_sync_timestamp_compatible(client, table_id, primary_timestamp, db_name)
     print(f"  🕐 上次同步时间戳: {last_timestamp}")
     
     # 获取增量数据
     lookback_hours = params.get('lookback_hours', 1)
-    rows = get_incremental_data(
+    rows = get_incremental_data_compatible(
         params['db_host'], params['db_port'],
         params['db_user'], params['db_pass'],
         db_name, table_name, primary_timestamp, 
@@ -291,47 +289,45 @@ def sync_table_incremental(params, db_name, table_name):
     
     # 使用MERGE语句进行upsert操作
     temp_table_id = f"{table_id}_temp_{int(datetime.now().timestamp())}"
-    temp_table = bigquery.Table(temp_table_id, schema=schema)
+    
+    # 创建临时表schema，只包含现有表中存在的字段
+    temp_schema = []
+    for field in schema:
+        if field.name in existing_field_names:
+            temp_schema.append(field)
+    
+    temp_table = bigquery.Table(temp_table_id, schema=temp_schema)
     temp_table = client.create_table(temp_table)
     print(f"  🔄 创建临时表: {temp_table_id}")
     
     try:
+        # 过滤数据，只保留现有表中存在的字段
+        filtered_rows = []
+        for row in rows:
+            filtered_row = {}
+            for key, value in row.items():
+                if key in existing_field_names:
+                    filtered_row[key] = value
+            filtered_rows.append(filtered_row)
+        
         # 将数据加载到临时表
         job_config = bigquery.LoadJobConfig(
             write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-            schema=schema
+            schema=temp_schema
         )
         
-        job = client.load_table_from_json(rows, temp_table_id, job_config=job_config)
+        job = client.load_table_from_json(filtered_rows, temp_table_id, job_config=job_config)
         job.result()
-        print(f"  📥 数据加载到临时表: {len(rows)} 行")
+        print(f"  📥 数据加载到临时表: {len(filtered_rows)} 行")
         
-        # 构建MERGE语句 - 基于主键或时间戳+tenant_id
+        # 构建MERGE语句 - 基于时间戳+tenant_id
         merge_condition = f"target.{primary_timestamp['name']} = source.{primary_timestamp['name']} AND target.tenant_id = source.tenant_id"
         
-        # 获取所有字段，但需要检查目标表是否存在这些字段
-        try:
-            # 获取目标表的实际schema
-            target_table = client.get_table(table_id)
-            target_field_names = [field.name for field in target_table.schema]
-            
-            # 只使用目标表中存在的字段
-            available_fields = [field.name for field in schema if field.name in target_field_names]
-            
-            update_fields = ", ".join([f"{field} = source.{field}" for field in available_fields])
-            insert_fields = ", ".join(available_fields)
-            insert_values = ", ".join([f"source.{field}" for field in available_fields])
-            
-            print(f"  📋 目标表字段: {len(target_field_names)} 个")
-            print(f"  📋 可用字段: {len(available_fields)} 个")
-            
-        except Exception as e:
-            print(f"  ⚠️ 无法获取目标表schema，使用所有字段: {e}")
-            # 回退到使用所有字段
-            all_fields = [field.name for field in schema]
-            update_fields = ", ".join([f"{field} = source.{field}" for field in all_fields])
-            insert_fields = ", ".join(all_fields)
-            insert_values = ", ".join([f"source.{field}" for field in all_fields])
+        # 只使用现有表中存在的字段
+        available_fields = [field.name for field in temp_schema]
+        update_fields = ", ".join([f"{field} = source.{field}" for field in available_fields])
+        insert_fields = ", ".join(available_fields)
+        insert_values = ", ".join([f"source.{field}" for field in available_fields])
         
         merge_query = f"""
         MERGE `{table_id}` AS target
@@ -345,6 +341,8 @@ def sync_table_incremental(params, db_name, table_name):
         """
         
         print(f"  🔄 执行MERGE操作...")
+        print(f"  📋 使用字段: {len(available_fields)} 个")
+        
         merge_job = client.query(merge_query)
         merge_result = merge_job.result()
         
@@ -356,8 +354,8 @@ def sync_table_incremental(params, db_name, table_name):
         print(f"  🗑️ 清理临时表")
 
 def main():
-    print("🚀 MySQL 到 BigQuery 增量同步工具")
-    print("=" * 50)
+    print("🚀 MySQL 到 BigQuery 增量同步工具 - 兼容版本")
+    print("=" * 60)
     
     # 读取配置
     with open('params.json', 'r') as f:
@@ -382,7 +380,7 @@ def main():
             current += 1
             print(f"\n[{current}/{total_tables}] 处理中...")
             try:
-                sync_table_incremental(params, db_name, table_name)
+                sync_table_incremental_compatible(params, db_name, table_name)
                 success_count += 1
             except Exception as e:
                 print(f"❌ 同步失败: {str(e)}")

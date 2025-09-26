@@ -4,12 +4,17 @@
 echo "🔧 安装 MySQL 到 BigQuery 数据同步工具依赖..."
 
 # 检查 Python 版本
-python_version=$(python3 --version 2>&1 | cut -d' ' -f2 | cut -d'.' -f1,2)
+python_version=$(python3 --version 2>&1 | cut -d' ' -f2)
+major_version=$(echo $python_version | cut -d'.' -f1)
+minor_version=$(echo $python_version | cut -d'.' -f2)
 echo "🐍 Python 版本: $python_version"
 
-if [[ "$python_version" < "3.8" ]]; then
-    echo "❌ 需要 Python 3.8 或更高版本"
+# 检查是否为 Python 3.8+
+if [[ $major_version -lt 3 ]] || [[ $major_version -eq 3 && $minor_version -lt 8 ]]; then
+    echo "❌ 需要 Python 3.8 或更高版本，当前版本: $python_version"
     exit 1
+else
+    echo "✅ Python 版本检查通过: $python_version"
 fi
 
 # 升级 pip
