@@ -68,11 +68,13 @@ python test_connection.py
 python simple_sync_ultimate.py
 ```
 
-#### 🏢 传统方式（已移至备份目录）
+#### 🏢 传统方式（特定场景）
 ```bash
-# 传统脚本已移动到 backup/traditional_scripts/ 目录
-# 强烈推荐使用智能同步工具替代
-python simple_sync_ultimate.py
+# 多租户全量同步（解决数据覆盖问题）
+python simple_sync_fixed_multitenant.py
+
+# 单租户标准同步
+python simple_sync_fixed.py
 ```
 
 ## 🧠 智能同步工具特性
@@ -145,22 +147,16 @@ python simple_sync_ultimate.py
 
 ### 📁 工具文件对比
 
-#### 🧠 智能同步时代（当前架构）
+#### 🧠 新架构（推荐）
 ```
 dataflow/
-├── simple_sync_ultimate.py     # ⭐⭐⭐⭐⭐ 智能同步工具（主推荐）
-├── test_connection.py           # 🔧 连接测试工具
-├── params.json                  # ⚙️ 配置文件
-└── backup/                      # 🗂️ 备份目录
-    ├── deprecated_scripts/      # 已废弃的重复脚本
-    │   ├── simple_sync_append_safe.py
-    │   ├── simple_sync_incremental.py
-    │   └── simple_sync_dedup.py
-    └── traditional_scripts/     # 传统同步脚本
-        ├── simple_sync.py
-        ├── simple_sync_fixed.py
-        ├── simple_sync_fixed_multitenant.py
-        └── simple_sync_incremental_compatible.py
+├── simple_sync_ultimate.py     # ⭐⭐⭐⭐⭐ 智能同步工具
+├── simple_sync_fixed_multitenant.py  # ⭐⭐⭐⭐ 多租户专用
+├── simple_sync_fixed.py        # ⭐⭐⭐ 单租户专用
+└── backup/deprecated_scripts/   # 🗂️ 已废弃脚本备份
+    ├── simple_sync_append_safe.py
+    ├── simple_sync_incremental.py
+    └── simple_sync_dedup.py
 ```
 
 #### ❌ 旧架构（已整理）
@@ -312,13 +308,13 @@ ORDER BY tenant_id;
 python simple_sync_ultimate.py
 ```
 
-### 🏢 多租户场景（推荐）
+### 🏢 传统多租户场景
 ```bash
-# 智能同步工具 - 自动处理多租户场景
-python simple_sync_ultimate.py
+# 1. 首次全量同步
+python simple_sync_fixed_multitenant.py
 
-# 如需使用传统脚本（不推荐）
-# python backup/traditional_scripts/simple_sync_fixed_multitenant.py
+# 2. 后续使用智能同步
+python simple_sync_ultimate.py
 ```
 
 ### 📊 数据质量保证
