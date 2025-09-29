@@ -1,0 +1,23 @@
+{
+  "db_host": "your-mysql-host",
+  "db_port": "3306",
+  "db_user": "root",
+  "db_pass": "your_password",
+  "db_list": "shop1,shop2,shop3",
+  "table_list": "users,orders,products",
+  "bq_project": "your-gcp-project",
+  "bq_dataset": "your_dataset",
+  
+  "_comment_sync_config": "同步配置参数",
+  "lookback_minutes": 10,
+  "batch_size": 1000,
+  "max_retries": 3,
+  "retry_delay": 5,
+  
+  "_comment_performance": "性能优化配置",
+  "pool_size": 5,
+  
+  "_comment_storage": "状态存储配置",
+  "status_storage": "local_file",
+  "status_dir": "sync_status"
+}
